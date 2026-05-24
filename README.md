@@ -8,8 +8,8 @@ A two-column TUI for browsing, starring, and managing [Ghostty](https://ghostty.
  -- favorites ------------------|  -- favorites ------------------
     Afterglow                   |     Belafonte Day
     Andromeda                   |     Breadog
- -- unreviewed -----------------|  -- unreviewed -----------------
- -> Crayon Pony Fish            |  -> Dawnfox
+ -- browse ----------------------|  -- browse --------------------
+    Crayon Pony Fish            |     Dawnfox
     Cursor Dark                 |     ...
 ```
 
@@ -39,18 +39,34 @@ uv run ghostty-theme-generate
 | `j` / `k` / arrows | Navigate within column |
 | `h` / `l` / left / right | Switch column |
 | `Ctrl-D` / `Ctrl-U` | Half-page scroll |
-| `Space` | Add unreviewed theme to favorites |
-| `*` | Star/unstar (works on favorites and unreviewed) |
+| `Space` | Add browse theme to favorites |
+| `*` | Star/unstar (works on favorites and browse) |
 | `x` | Remove from favorites or starred |
 | `Enter` | Save chosen theme and quit |
 | `Esc` / `q` | Cancel, restore original theme, quit |
+| `G` | Jump to bottom of column |
+| `Ctrl-O` | Go back to previous position |
+
+### Jumps (g-prefix)
+
+Press `g` then a second key to jump:
+
+| Sequence | Action |
+|----------|--------|
+| `gg` | Top of column |
+| `gd` / `gl` | Jump to dark / light column |
+| `gs` | Jump to starred section |
+| `gf` | Jump to favorites section |
+| `gu` | Jump to browse section |
+
+Jumping to a section remembers where you were last time. Starring, favoriting, removing, column switches, page moves, and section jumps all save your position so `Ctrl-O` can take you back.
 
 ### Workflow
 
-1. Themes start as **unreviewed** (from `all-themes.txt`, sorted alphabetically after `last_reviewed`).
-2. Browse unreviewed themes. Each one you scroll past is marked reviewed on exit.
+1. All themes not yet in favorites or starred appear in the **browse** section.
+2. Navigate browse themes. Themes you visit are dimmed (seen) so you can track your progress visually.
 3. Press `Space` to promote to **favorites**, or `*` to go straight to **starred**.
-4. Favorites and starred persist in `themes.yaml` across sessions.
+4. Favorites, starred, seen state, and browse cursor position persist in `themes.yaml` across sessions.
 
 ## Data files
 
@@ -58,7 +74,7 @@ All data lives in `~/.config/ghostty/`:
 
 | File | Purpose |
 |------|---------|
-| `themes.yaml` | Favorites, starred, review progress (managed by the picker) |
+| `themes.yaml` | Favorites, starred, seen themes, browse cursor (managed by the picker) |
 | `all-themes.txt` | Full theme list from Ghostty, one per line, alphabetical |
 | `classified-themes.yaml` | Auto-generated dark/light cache for all themes |
 | `config` | Main Ghostty config (theme line is edited live during preview) |

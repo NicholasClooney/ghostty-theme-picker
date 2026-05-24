@@ -55,8 +55,8 @@ def generate_classified() -> dict[str, str]:
 
 
 def load_yaml() -> dict:
-    """Load themes.yaml into structured dict with review, starred, dark, light."""
-    data = {"review": {}, "starred": [], "dark": [], "light": []}
+    """Load themes.yaml into structured dict with starred, dark, light, seen, browse_cursor."""
+    data = {"starred": [], "dark": [], "light": [], "seen": [], "browse_cursor": {}}
     if not YAML_FILE.exists():
         return data
 
@@ -66,7 +66,7 @@ def load_yaml() -> dict:
     for line in text.splitlines():
         stripped = line.strip()
         if line.startswith("review:"):
-            current_section = "review"
+            current_section = "review"  # skip old review section
             continue
         if line.startswith("starred:"):
             current_section = "starred"
@@ -77,20 +77,19 @@ def load_yaml() -> dict:
         if line.startswith("light:"):
             current_section = "light"
             continue
+        if line.startswith("seen:"):
+            current_section = "seen"
+            continue
+        if line.startswith("browse_cursor:"):
+            current_section = "browse_cursor"
+            continue
         if re.match(r"^[a-z]", line) and not line.startswith(" "):
             current_section = None
             continue
 
         if current_section == "review":
-            m = re.match(r'\s+last_reviewed:\s*"(.+)"', line)
-            if m:
-                data["review"]["last_reviewed"] = m.group(1)
-            m = re.match(r"\s+reviewed_count:\s*(\d+)", line)
-            if m:
-                data["review"]["reviewed_count"] = int(m.group(1))
-            m = re.match(r"\s+total_count:\s*(\d+)", line)
-            if m:
-                data["review"]["total_count"] = int(m.group(1))
+            # Ignore old review section for backward compat
+            continue
 
         elif current_section == "starred":
             m = re.match(r'\s+- "(.+)"', line)
@@ -108,19 +107,26 @@ def load_yaml() -> dict:
             if m and data[current_section]:
                 data[current_section][-1]["bg_color"] = m.group(1)
 
+        elif current_section == "seen":
+            m = re.match(r'\s+- "(.+)"', line)
+            if m:
+                data["seen"].append(m.group(1))
+
+        elif current_section == "browse_cursor":
+            m = re.match(r'\s+dark: "(.+)"', line)
+            if m:
+                data["browse_cursor"]["dark"] = m.group(1)
+            m = re.match(r'\s+light: "(.+)"', line)
+            if m:
+                data["browse_cursor"]["light"] = m.group(1)
+
     return data
 
 
-def save_yaml(data: dict) -> None:
+def save_yaml(data: dict, seen: set[str], browse_cursor: dict[str, str]) -> None:
     """Write structured data back to themes.yaml."""
-    review = data["review"]
     lines = [
         "# Managed by ghostty-theme-picker",
-        "",
-        "review:",
-        f'  last_reviewed: "{review.get("last_reviewed", "")}"',
-        f"  reviewed_count: {review.get('reviewed_count', 0)}",
-        f"  total_count: {review.get('total_count', 0)}",
         "",
         "starred:",
     ]
@@ -138,6 +144,16 @@ def save_yaml(data: dict) -> None:
         lines.append(f'  - name: "{t["name"]}"')
         lines.append(f'    background: "{t["background"]}"')
         lines.append(f"    bg_color: {t['bg_color']}")
+    lines.append("")
+    lines.append("seen:")
+    for name in sorted(seen):
+        lines.append(f'  - "{name}"')
+    lines.append("")
+    lines.append("browse_cursor:")
+    if browse_cursor.get("dark"):
+        lines.append(f'  dark: "{browse_cursor["dark"]}"')
+    if browse_cursor.get("light"):
+        lines.append(f'  light: "{browse_cursor["light"]}"')
     lines.append("")
     YAML_FILE.write_text("\n".join(lines))
 
@@ -202,16 +218,9 @@ def classify_theme(name: str) -> dict | None:
     return {"name": name, "mode": mode, "background": bg, "bg_color": label}
 
 
-def load_unreviewed(last_reviewed: str) -> list[str]:
-    """Return theme names from all-themes.txt that come after last_reviewed."""
+def load_browse(exclude: set[str]) -> list[str]:
+    """Return all themes from all-themes.txt not in the exclude set."""
     if not ALL_THEMES_FILE.exists():
         return []
     all_names = ALL_THEMES_FILE.read_text().splitlines()
-    if not last_reviewed:
-        return all_names
-
-    try:
-        idx = all_names.index(last_reviewed)
-        return all_names[idx + 1:]
-    except ValueError:
-        return all_names
+    return [n for n in all_names if n not in exclude]

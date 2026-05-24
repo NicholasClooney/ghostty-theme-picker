@@ -5,22 +5,25 @@ import sys
 from typing import Any
 
 from theme_picker.core import (
+    ITEM_BROWSE,
     ITEM_FAVORITE,
     ITEM_SEPARATOR,
     ITEM_STARRED,
-    ITEM_UNREVIEWED,
     PickerState,
     action_add_favorite,
+    action_go_back,
+    action_jump_bottom,
+    action_jump_column,
+    action_jump_section,
+    action_jump_top,
     action_move,
     action_page_move,
     action_remove,
     action_star,
     action_switch_column,
-    build_items,
-    compute_save_state,
     init_state,
     rebuild,
-    track_unreviewed,
+    track_seen,
 )
 from theme_picker.config import get_current_theme, reload_config, set_theme
 from theme_picker.data import (
@@ -28,8 +31,8 @@ from theme_picker.data import (
     classify,
     classify_theme,
     generate_classified,
+    load_browse,
     load_classified,
-    load_unreviewed,
     load_yaml,
     luminance,
     parse_bg,
@@ -199,8 +202,9 @@ def draw_preview(stdscr: Any, y: int, w: int) -> int:
     return y
 
 
-def draw_column(stdscr: Any, items: list[dict], idx: int, scroll: int, resume_idx: int | None,
-                col_x: int, col_w: int, y_start: int, visible: int, focused: bool) -> None:
+def draw_column(stdscr: Any, items: list[dict], idx: int, scroll: int,
+                col_x: int, col_w: int, y_start: int, visible: int,
+                focused: bool, seen: set[str]) -> None:
     """Draw one column of the theme list."""
     h, w = stdscr.getmaxyx()
 
@@ -224,8 +228,6 @@ def draw_column(stdscr: Any, items: list[dict], idx: int, scroll: int, resume_id
         # Gutter marker
         if item["type"] == ITEM_STARRED:
             gutter = " \u2605  "  # star
-        elif item["type"] == ITEM_UNREVIEWED and ti == resume_idx:
-            gutter = " \u2192  "  # arrow
         else:
             gutter = "    "
 
@@ -242,33 +244,42 @@ def draw_column(stdscr: Any, items: list[dict], idx: int, scroll: int, resume_id
         elif item["type"] == ITEM_STARRED:
             attr = curses.color_pair(C_YELLOW) if focused else curses.color_pair(C_DIM)
             _addstr(stdscr, y, col_x, line, attr)
+        elif item["type"] == ITEM_BROWSE and name in seen:
+            # Dim seen browse items
+            _addstr(stdscr, y, col_x, line, curses.color_pair(C_DIM))
         else:
             attr = curses.color_pair(C_NORMAL) if focused else curses.color_pair(C_DIM)
             _addstr(stdscr, y, col_x, line, attr)
 
 
-def main_tui(stdscr: Any, data: dict, unreviewed: list[str],
-             classifications: dict[str, str], original_theme: str) -> bool:
+def _build_browse_cursor(state: PickerState) -> dict[str, str]:
+    """Build browse_cursor dict from current section_cursors."""
+    cursor = {}
+    mode_map = {0: "dark", 1: "light"}
+    for c in range(2):
+        saved = state.section_cursors["browse"][c]
+        if saved is not None:
+            cursor[mode_map[c]] = saved[0]  # saved is (name, idx)
+    return cursor
+
+
+def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
     curses.curs_set(0)
     init_colors()
 
-    # Initialize Pure State
-    state = init_state(
-        data=data,
-        unreviewed=unreviewed,
-        classifications=classifications,
-        original_theme=original_theme,
-        classify_fn=classify_theme,
-    )
-
     if not state.columns[0] and not state.columns[1]:
         return False
+
+    pending_g = False
 
     while True:
         stdscr.clear()
         h, w = stdscr.getmaxyx()
 
-        title = "Pick theme (j/k/^D/^U, h/l=col, Enter=save, Esc=cancel, *=star, x=rm, Space=add)"
+        if pending_g:
+            title = "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
+        else:
+            title = "j/k ^D/^U h/l Enter Esc *=star x=rm Space=add G=bot g..=jump ^O=back"
         _addstr(stdscr, 0, 0, title[:w - 1], curses.A_BOLD)
 
         list_start = draw_preview(stdscr, 2, w)
@@ -295,13 +306,9 @@ def main_tui(stdscr: Any, data: dict, unreviewed: list[str],
             state.scroll[c] = max(0, state.idx[c] - visible // 2)
             state.scroll[c] = min(state.scroll[c], max(0, len(items) - visible))
 
-        # Dynamic resume index calculation
-        from theme_picker.core import find_resume_index
-        resume_idx = [find_resume_index(state.columns[0]), find_resume_index(state.columns[1])]
-
         # Draw left column (dark)
-        draw_column(stdscr, state.columns[0], state.idx[0], state.scroll[0], resume_idx[0],
-                    0, col_w, list_start, visible, state.col == 0)
+        draw_column(stdscr, state.columns[0], state.idx[0], state.scroll[0],
+                    0, col_w, list_start, visible, state.col == 0, state.seen)
 
         # Draw divider
         for row in range(visible):
@@ -311,18 +318,52 @@ def main_tui(stdscr: Any, data: dict, unreviewed: list[str],
             _addstr(stdscr, y, divider_x, BOX_V, curses.color_pair(C_GRAY))
 
         # Draw right column (light)
-        draw_column(stdscr, state.columns[1], state.idx[1], state.scroll[1], resume_idx[1],
-                    divider_x + 1, w - divider_x - 1, list_start, visible, state.col == 1)
+        draw_column(stdscr, state.columns[1], state.idx[1], state.scroll[1],
+                    divider_x + 1, w - divider_x - 1, list_start, visible,
+                    state.col == 1, state.seen)
 
         stdscr.refresh()
 
-        # Track furthest unreviewed browsing
-        state = track_unreviewed(state)
+        # Track seen browse items
+        state = track_seen(state)
 
         key = stdscr.getch()
 
+        # g-prefix two-key sequences
+        if pending_g:
+            pending_g = False
+            preview = None
+            if key == ord("g"):
+                state, preview = action_jump_top(state)
+            elif key == ord("d"):
+                state, preview = action_jump_column(state, 0)
+            elif key == ord("l"):
+                state, preview = action_jump_column(state, 1)
+            elif key == ord("s"):
+                state, preview = action_jump_section(state, "starred")
+            elif key == ord("f"):
+                state, preview = action_jump_section(state, "favorites")
+            elif key == ord("u"):
+                state, preview = action_jump_section(state, "browse")
+            elif key == 27:  # Esc cancels g-prefix
+                continue
+            # else: unknown second key, ignore
+            if preview:
+                set_theme(preview)
+            continue
+
         if key in (ord("q"), 27):  # quit/cancel
             break
+        elif key == ord("g"):
+            pending_g = True
+        elif key == ord("G"):
+            state, preview = action_jump_bottom(state)
+            if preview:
+                set_theme(preview)
+        elif key == 15:  # Ctrl-O: go back
+            state, preview = action_go_back(state)
+            if preview:
+                set_theme(preview)
         elif key in (curses.KEY_DOWN, ord("j")):
             state, preview = action_move(state, 1)
             if preview:
@@ -348,9 +389,8 @@ def main_tui(stdscr: Any, data: dict, unreviewed: list[str],
             if preview:
                 set_theme(preview)
         elif key in (curses.KEY_ENTER, 10, 13):
-            all_theme_names = ALL_THEMES_FILE.read_text().splitlines() if ALL_THEMES_FILE.exists() else []
-            data = compute_save_state(state, all_theme_names)
-            save_yaml(data)
+            browse_cursor = _build_browse_cursor(state)
+            save_yaml(state.data, state.seen, browse_cursor)
             return True
         elif key == ord("*"):
             state, _ = action_star(state, classify_theme)
@@ -369,16 +409,15 @@ def main_tui(stdscr: Any, data: dict, unreviewed: list[str],
                 set_theme(items[state.idx[state.col]]["name"])
 
     # Cancel: save state but restore original theme
-    all_theme_names = ALL_THEMES_FILE.read_text().splitlines() if ALL_THEMES_FILE.exists() else []
-    data = compute_save_state(state, all_theme_names)
-    save_yaml(data)
+    browse_cursor = _build_browse_cursor(state)
+    save_yaml(state.data, state.seen, browse_cursor)
     return False
 
 
 def run() -> None:
     data = load_yaml()
-    last_reviewed = data["review"].get("last_reviewed", "")
-    unreviewed = load_unreviewed(last_reviewed)
+    seen = set(data.pop("seen", []))
+    browse_cursor = data.pop("browse_cursor", {})
 
     # Filter out themes already in favorites or starred
     all_favorite_names = set(
@@ -386,7 +425,7 @@ def run() -> None:
     ) | set(
         t["name"] for t in data["light"]
     ) | set(data["starred"])
-    unreviewed = [n for n in unreviewed if n not in all_favorite_names]
+    browse = load_browse(all_favorite_names)
 
     # Load or generate classifications
     classifications = load_classified()
@@ -394,12 +433,23 @@ def run() -> None:
         print("Classification cache not found. Building...")
         classifications = generate_classified()
 
-    if not data["dark"] and not data["light"] and not data["starred"] and not unreviewed:
+    if not data["dark"] and not data["light"] and not data["starred"] and not browse:
         print("No themes found.")
         sys.exit(1)
 
     original_theme = get_current_theme()
-    saved = curses.wrapper(main_tui, data, unreviewed, classifications, original_theme)
+
+    state = init_state(
+        data=data,
+        browse=browse,
+        classifications=classifications,
+        original_theme=original_theme,
+        classify_fn=classify_theme,
+        seen=seen,
+        browse_cursor=browse_cursor,
+    )
+
+    saved = curses.wrapper(main_tui, state, original_theme)
 
     if saved:
         final = get_current_theme()

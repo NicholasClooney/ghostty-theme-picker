@@ -7,7 +7,7 @@ from typing import Callable
 
 ITEM_STARRED = "starred"
 ITEM_FAVORITE = "favorite"
-ITEM_UNREVIEWED = "unreviewed"
+ITEM_BROWSE = "browse"
 ITEM_SEPARATOR = "separator"
 
 # ── State ────────────────────────────────────────────────────────────
@@ -16,20 +16,26 @@ ITEM_SEPARATOR = "separator"
 @dataclass
 class PickerState:
     """All mutable state for the theme picker TUI."""
-    data: dict                                     # {review, starred, dark, light}
-    unreviewed: list[str]                           # unreviewed theme names
+    data: dict                                     # {starred, dark, light}
+    browse: list[str]                              # browse theme names
     classifications: dict[str, str]                 # name -> "dark"/"light"
+    seen: set[str] = field(default_factory=set)     # themes cursor has visited in browse
     col: int = 0                                    # 0=dark, 1=light
     idx: list[int] = field(default_factory=lambda: [0, 0])
     scroll: list[int] = field(default_factory=lambda: [0, 0])
-    furthest_unreviewed: list[int] = field(default_factory=lambda: [-1, -1])
     columns: list[list[dict]] = field(default_factory=lambda: [[], []])
+    history: list[tuple[int, int, int]] = field(default_factory=list)
+    section_cursors: dict[str, list[tuple[str, int] | None]] = field(
+        default_factory=lambda: {"starred": [None, None],
+                                 "favorites": [None, None],
+                                 "browse": [None, None]}
+    )
 
 
 # ── Pure helper functions ────────────────────────────────────────────
 
 
-def build_items(data: dict, unreviewed: list[str], mode: str,
+def build_items(data: dict, browse: list[str], mode: str,
                 classifications: dict[str, str],
                 classify_fn: Callable | None = None) -> list[dict]:
     """Build display list for one column (dark or light)."""
@@ -60,12 +66,12 @@ def build_items(data: dict, unreviewed: list[str], mode: str,
     favorites.sort(key=lambda x: x["name"].lower())
     items.extend(favorites)
 
-    # Unreviewed section (filtered to this mode)
-    mode_unreviewed = [n for n in unreviewed if classifications.get(n) == mode]
-    if mode_unreviewed:
-        items.append({"type": ITEM_SEPARATOR, "label": "unreviewed"})
-        for name in mode_unreviewed:
-            items.append({"type": ITEM_UNREVIEWED, "name": name})
+    # Browse section (filtered to this mode)
+    mode_browse = [n for n in browse if classifications.get(n) == mode]
+    if mode_browse:
+        items.append({"type": ITEM_SEPARATOR, "label": "browse"})
+        for name in mode_browse:
+            items.append({"type": ITEM_BROWSE, "name": name})
 
     return items
 
@@ -78,14 +84,6 @@ def next_selectable(items, idx, direction=1):
             return i
         i += direction
     return idx
-
-
-def find_resume_index(items) -> int | None:
-    """Find the first unreviewed item (the resume point)."""
-    for i, item in enumerate(items):
-        if item["type"] == ITEM_UNREVIEWED:
-            return i
-    return None
 
 
 def _find_item(items, name) -> int | None:
@@ -115,6 +113,44 @@ def _remove_from_favorites(data, name):
     data["light"] = [t for t in data["light"] if t["name"] != name]
 
 
+def _current_section(items, idx) -> str | None:
+    """Return section type for the item at idx."""
+    if not items or idx < 0 or idx >= len(items):
+        return None
+    item = items[idx]
+    if item["type"] == ITEM_SEPARATOR:
+        return None
+    return {"starred": "starred", "favorite": "favorites",
+            "browse": "browse"}.get(item["type"])
+
+
+def _find_section_start(items, section_type) -> int | None:
+    """Find first selectable item in a section."""
+    type_map = {"starred": ITEM_STARRED, "favorites": ITEM_FAVORITE,
+                "browse": ITEM_BROWSE}
+    target = type_map.get(section_type)
+    if target is None:
+        return None
+    for i, item in enumerate(items):
+        if item["type"] == target:
+            return i
+    return None
+
+
+def _save_section_cursor(state: 'PickerState') -> 'PickerState':
+    """Save current theme name and index to section_cursors for the current section."""
+    items = state.columns[state.col]
+    if not items:
+        return state
+    section = _current_section(items, state.idx[state.col])
+    if section is None:
+        return state
+    name = items[state.idx[state.col]].get("name")
+    idx = state.idx[state.col]
+    state.section_cursors[section][state.col] = (name, idx)
+    return state
+
+
 # ── Rebuild ──────────────────────────────────────────────────────────
 
 
@@ -122,24 +158,128 @@ def rebuild(state: PickerState,
             classify_fn: Callable | None = None) -> PickerState:
     """Rebuild columns from current state data."""
     state.columns[0] = build_items(
-        state.data, state.unreviewed, "dark",
+        state.data, state.browse, "dark",
         state.classifications, classify_fn)
     state.columns[1] = build_items(
-        state.data, state.unreviewed, "light",
+        state.data, state.browse, "light",
         state.classifications, classify_fn)
     return state
+
+
+# ── History + jump actions ────────────────────────────────────────────
+
+
+def action_push_history(state: PickerState) -> PickerState:
+    """Push current position onto history stack."""
+    state.history.append((state.col, state.idx[0], state.idx[1]))
+    return state
+
+
+def action_go_back(state: PickerState) -> tuple[PickerState, str | None]:
+    """Pop history and restore position. No-op if history is empty."""
+    if not state.history:
+        return state, None
+    col, idx0, idx1 = state.history.pop()
+    state.col = col
+    state.idx[0] = _clamp_to_selectable(state.columns[0], idx0) if state.columns[0] else 0
+    state.idx[1] = _clamp_to_selectable(state.columns[1], idx1) if state.columns[1] else 0
+    items = state.columns[state.col]
+    if items and state.idx[state.col] < len(items):
+        return state, items[state.idx[state.col]]["name"]
+    return state, None
+
+
+def action_jump_section(state: PickerState,
+                        section: str) -> tuple[PickerState, str | None]:
+    """Jump to a section in the current column. Pushes history first."""
+    items = state.columns[state.col]
+    if not items:
+        return state, None
+    # Check if section exists in current column
+    target = _find_section_start(items, section)
+    if target is None:
+        return state, None
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
+    # Try to restore saved cursor for this section
+    saved = state.section_cursors[section][state.col]
+    if saved is not None:
+        saved_name, saved_idx = saved
+        found = _find_item(items, saved_name)
+        if found is not None and _current_section(items, found) == section:
+            # Theme still in this section, jump to it
+            state.idx[state.col] = found
+            return state, items[found]["name"]
+        # Theme moved out of section. Try the same index position,
+        # clamped to a selectable item. Try forward first, then backward.
+        candidate = _clamp_to_selectable(items, saved_idx)
+        if _current_section(items, candidate) == section:
+            state.idx[state.col] = candidate
+            return state, items[candidate]["name"]
+        # Clamped outside the section, try the neighbor before saved_idx
+        candidate = next_selectable(items, saved_idx, -1)
+        if _current_section(items, candidate) == section:
+            state.idx[state.col] = candidate
+            return state, items[candidate]["name"]
+    state.idx[state.col] = target
+    return state, items[target]["name"]
+
+
+def action_jump_column(state: PickerState,
+                       col: int) -> tuple[PickerState, str | None]:
+    """Jump to a specific column (0=dark, 1=light). Pushes history first."""
+    if col < 0 or col > 1 or not state.columns[col]:
+        return state, None
+    if col == state.col:
+        return state, None
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
+    state.col = col
+    items = state.columns[col]
+    if items:
+        return state, items[state.idx[col]]["name"]
+    return state, None
+
+
+def action_jump_top(state: PickerState) -> tuple[PickerState, str | None]:
+    """Jump to first selectable item in current column."""
+    items = state.columns[state.col]
+    if not items:
+        return state, None
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
+    target = next_selectable(items, -1, 1)
+    state.idx[state.col] = target
+    return state, items[target]["name"]
+
+
+def action_jump_bottom(state: PickerState) -> tuple[PickerState, str | None]:
+    """Jump to last selectable item in current column."""
+    items = state.columns[state.col]
+    if not items:
+        return state, None
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
+    target = next_selectable(items, len(items), -1)
+    state.idx[state.col] = target
+    return state, items[target]["name"]
 
 
 # ── Action functions ─────────────────────────────────────────────────
 
 
 def action_move(state: PickerState, direction: int) -> tuple[PickerState, str | None]:
-    """Move cursor up (direction=-1) or down (direction=1)."""
+    """Move cursor up (direction=-1) or down (direction=1).
+
+    Single-step motion does not push history (matches vim behavior where
+    j/k are not jumps).
+    """
     items = state.columns[state.col]
     if not items:
         return state, None
     new_idx = next_selectable(items, state.idx[state.col], direction)
     if new_idx != state.idx[state.col]:
+        state = _save_section_cursor(state)
         state.idx[state.col] = new_idx
         return state, items[new_idx]["name"]
     return state, None
@@ -156,6 +296,8 @@ def action_page_move(state: PickerState, direction: int,
     target = max(0, min(target, len(items) - 1))
     target = _clamp_to_selectable(items, target)
     if target != state.idx[state.col]:
+        state = _save_section_cursor(state)
+        state = action_push_history(state)
         state.idx[state.col] = target
         return state, items[target]["name"]
     return state, None
@@ -169,6 +311,8 @@ def action_switch_column(state: PickerState,
         return state, None
     if not state.columns[new_col]:
         return state, None
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
     state.col = new_col
     items = state.columns[state.col]
     if items:
@@ -178,11 +322,13 @@ def action_switch_column(state: PickerState,
 
 def action_star(state: PickerState,
                 classify_fn: Callable) -> tuple[PickerState, str | None]:
-    """Toggle star on current item, or star directly from unreviewed."""
+    """Toggle star on current item, or star directly from browse."""
     items = state.columns[state.col]
     if not items:
         return state, None
     item = items[state.idx[state.col]]
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
 
     if item["type"] == ITEM_STARRED:
         # Unstar: remove from starred list
@@ -206,8 +352,8 @@ def action_star(state: PickerState,
             else _clamp_to_selectable(state.columns[state.col], state.idx[state.col])
         )
 
-    elif item["type"] == ITEM_UNREVIEWED:
-        # Star from unreviewed: add to favorites + starred
+    elif item["type"] == ITEM_BROWSE:
+        # Star from browse: add to favorites + starred
         name = item["name"]
         info = classify_fn(name)
         if info:
@@ -218,7 +364,7 @@ def action_star(state: PickerState,
             else:
                 state.data["light"].append(entry)
             state.data["starred"].append(name)
-            state.unreviewed.remove(name)
+            state.browse.remove(name)
             state = rebuild(state, classify_fn)
             found = _find_item(state.columns[state.col], name)
             state.idx[state.col] = (
@@ -236,6 +382,8 @@ def action_remove(state: PickerState,
     if not items:
         return state, None
     item = items[state.idx[state.col]]
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
 
     if item["type"] == ITEM_STARRED:
         name = item["name"]
@@ -257,14 +405,17 @@ def action_remove(state: PickerState,
 
 def action_add_favorite(state: PickerState,
                         classify_fn: Callable) -> tuple[PickerState, str | None]:
-    """Add unreviewed theme to favorites (Space key)."""
+    """Add browse theme to favorites (Space key)."""
     items = state.columns[state.col]
     if not items:
         return state, None
     item = items[state.idx[state.col]]
 
-    if item["type"] != ITEM_UNREVIEWED:
+    if item["type"] != ITEM_BROWSE:
         return state, None
+
+    state = _save_section_cursor(state)
+    state = action_push_history(state)
 
     name = item["name"]
     info = classify_fn(name)
@@ -275,7 +426,7 @@ def action_add_favorite(state: PickerState,
             state.data["dark"].append(entry)
         else:
             state.data["light"].append(entry)
-        state.unreviewed.remove(name)
+        state.browse.remove(name)
         state = rebuild(state, classify_fn)
         found = _find_item(state.columns[state.col], name)
         if found is not None:
@@ -287,54 +438,31 @@ def action_add_favorite(state: PickerState,
     return state, None
 
 
-# ── Save / tracking / init ───────────────────────────────────────────
+# ── Seen tracking / init ─────────────────────────────────────────────
 
 
-def compute_save_state(state: PickerState,
-                       all_theme_names: list[str]) -> dict:
-    """Update review progress in data based on furthest_unreviewed. Pure."""
-    best_name = None
-    best_global_idx = -1
-
-    for c in range(2):
-        fi = state.furthest_unreviewed[c]
-        if fi >= 0 and fi < len(state.columns[c]):
-            item = state.columns[c][fi]
-            if item["type"] == ITEM_UNREVIEWED:
-                try:
-                    gi = all_theme_names.index(item["name"])
-                    if gi > best_global_idx:
-                        best_global_idx = gi
-                        best_name = item["name"]
-                except ValueError:
-                    pass
-
-    if best_name:
-        state.data["review"]["last_reviewed"] = best_name
-        state.data["review"]["reviewed_count"] = best_global_idx + 1
-
-    return state.data
-
-
-def track_unreviewed(state: PickerState) -> PickerState:
-    """Update furthest_unreviewed tracking for the current position."""
+def track_seen(state: PickerState) -> PickerState:
+    """If cursor is on a browse item, add its name to seen set."""
     items = state.columns[state.col]
     if items and state.idx[state.col] < len(items):
-        if items[state.idx[state.col]]["type"] == ITEM_UNREVIEWED:
-            if state.idx[state.col] > state.furthest_unreviewed[state.col]:
-                state.furthest_unreviewed[state.col] = state.idx[state.col]
+        item = items[state.idx[state.col]]
+        if item["type"] == ITEM_BROWSE:
+            state.seen.add(item["name"])
     return state
 
 
-def init_state(data: dict, unreviewed: list[str],
+def init_state(data: dict, browse: list[str],
                classifications: dict[str, str],
                original_theme: str,
-               classify_fn: Callable | None = None) -> PickerState:
+               classify_fn: Callable | None = None,
+               seen: set[str] | None = None,
+               browse_cursor: dict[str, str] | None = None) -> PickerState:
     """Create and initialize a PickerState for the given data."""
     state = PickerState(
         data=data,
-        unreviewed=unreviewed,
+        browse=browse,
         classifications=classifications,
+        seen=seen if seen is not None else set(),
     )
     state = rebuild(state, classify_fn)
 
@@ -351,5 +479,16 @@ def init_state(data: dict, unreviewed: list[str],
         else:
             if state.columns[c]:
                 state.idx[c] = next_selectable(state.columns[c], -1, 1)
+
+    # Restore browse cursor from previous session
+    if browse_cursor:
+        mode_map = {0: "dark", 1: "light"}
+        for c in range(2):
+            mode = mode_map[c]
+            cursor_name = browse_cursor.get(mode)
+            if cursor_name:
+                found = _find_item(state.columns[c], cursor_name)
+                if found is not None and _current_section(state.columns[c], found) == "browse":
+                    state.section_cursors["browse"][c] = (cursor_name, found)
 
     return state

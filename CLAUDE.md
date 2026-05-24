@@ -4,7 +4,7 @@ Instructions for AI agents working on ghostty-theme-picker.
 
 ## Project overview
 
-A curses TUI for browsing and managing Ghostty terminal themes. Two-column layout (dark/light), with starring, favorites, and unreviewed browsing. Uses a functional core / imperative shell architecture.
+A curses TUI for browsing and managing Ghostty terminal themes. Two-column layout (dark/light), with starring, favorites, and browse sections. Seen themes are visually dimmed, and browse cursor persists across sessions. Uses a functional core / imperative shell architecture.
 
 ## Setup
 
@@ -32,10 +32,17 @@ Tests are in `theme_picker/tests/`. They cover the pure functional core only, no
 - Action functions return `tuple[PickerState, str | None]` where the string is a theme name to preview, or `None`.
 - `classify_fn` is passed as a callback to keep core.py pure. In production it's `data.classify_theme`, in tests it's a mock.
 - Data files live in `~/.config/ghostty/`, not in this repo. The repo contains only code and tests.
-- `themes.yaml` is the single source of truth for favorites, starred, and review progress. `generate.py` only rebuilds the classification cache and refreshes metadata, never overwrites user state.
+- `themes.yaml` is the single source of truth for favorites, starred, seen set, and browse cursor. `generate.py` only rebuilds the classification cache and refreshes metadata, never overwrites user state.
+
+## Keybindings
+
+When adding or changing keybindings, update all three places:
+1. `cli.py` -- the actual key handling logic
+2. `cli.py` title bar strings -- the in-TUI help text (both normal and g-prefix modes)
+3. `README.md` "Keys" and "Jumps" sections -- the user-facing docs
 
 ## Common mistakes
 
 - Don't add I/O to `core.py`. If you need file access, add it to `data.py` or `config.py` and pass results in.
-- Don't forget to call `rebuild(state)` after mutating `state.data` or `state.unreviewed`.
-- The `*` key must work on all item types (starred, favorite, unreviewed), not just favorites.
+- Don't forget to call `rebuild(state)` after mutating `state.data` or `state.browse`.
+- The `*` key must work on all item types (starred, favorite, browse), not just favorites.
