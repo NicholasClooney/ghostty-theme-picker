@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     types: [opened, reopened, synchronize]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +16,12 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,3 +35,107 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -v
+
+      - name: Install user tool entrypoints
+        run: python scripts/install_user.py
+
+      - name: Add uv tool bin directory to PATH
+        shell: bash
+        run: |
+          UV_TOOL_BIN="$(uv tool dir --bin)"
+          echo "UV_TOOL_BIN=$UV_TOOL_BIN" >> "$GITHUB_ENV"
+          echo "$UV_TOOL_BIN" >> "$GITHUB_PATH"
+
+      - name: Verify installed commands resolve from uv tool bin
+        shell: bash
+        run: |
+          test -x "${UV_TOOL_BIN}/ghostty-theme-picker"
+          test -x "${UV_TOOL_BIN}/ghostty-theme-generate"
+          test "$(command -v ghostty-theme-picker)" = "${UV_TOOL_BIN}/ghostty-theme-picker"
+          test "$(command -v ghostty-theme-generate)" = "${UV_TOOL_BIN}/ghostty-theme-generate"
+
+      - name: Smoke test generator entrypoint
+        run: ghostty-theme-generate --version
+
+      - name: Launch installed picker command in a temporary Ghostty home
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pty
+          import select
+          import struct
+          import subprocess
+          import sys
+          import tempfile
+          import termios
+          import time
+          from pathlib import Path
+
+          home = Path(tempfile.mkdtemp(prefix="ghostty-theme-picker-ci-"))
+          config_dir = home / ".config" / "ghostty"
+          theme_dir = config_dir / "themes"
+          theme_dir.mkdir(parents=True, exist_ok=True)
+
+          (config_dir / "all-themes.txt").write_text("CI Dark\n", encoding="utf-8")
+          (theme_dir / "CI Dark").write_text("background = #101010\n", encoding="utf-8")
+          (config_dir / "config").write_text("theme = CI Dark\n", encoding="utf-8")
+
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["XDG_CONFIG_HOME"] = str(home / ".config")
+          env["TERM"] = env.get("TERM", "xterm-256color")
+
+          primary_fd, secondary_fd = pty.openpty()
+          try:
+              size = struct.pack("HHHH", 40, 120, 0, 0)
+              termios.tcsetwinsize(secondary_fd, (40, 120))
+          except AttributeError:
+              import fcntl
+
+              fcntl.ioctl(secondary_fd, termios.TIOCSWINSZ, size)
+
+          proc = subprocess.Popen(
+              ["ghostty-theme-picker"],
+              stdin=secondary_fd,
+              stdout=secondary_fd,
+              stderr=secondary_fd,
+              env=env,
+              close_fds=True,
+          )
+          os.close(secondary_fd)
+
+          output = bytearray()
+          start_deadline = time.time() + 10
+          while time.time() < start_deadline:
+              if proc.poll() is not None:
+                  break
+              ready, _, _ = select.select([primary_fd], [], [], 0.2)
+              if ready:
+                  output.extend(os.read(primary_fd, 4096))
+
+          if proc.poll() is not None:
+              sys.stderr.write(output.decode("utf-8", errors="replace"))
+              raise SystemExit(f"ghostty-theme-picker exited early with code {proc.returncode}")
+
+          os.write(primary_fd, b"q")
+
+          exit_deadline = time.time() + 10
+          while time.time() < exit_deadline and proc.poll() is None:
+              ready, _, _ = select.select([primary_fd], [], [], 0.2)
+              if ready:
+                  output.extend(os.read(primary_fd, 4096))
+
+          if proc.poll() is None:
+              proc.kill()
+              raise SystemExit("ghostty-theme-picker did not exit after sending q")
+
+          ready, _, _ = select.select([primary_fd], [], [], 0.2)
+          if ready:
+              output.extend(os.read(primary_fd, 4096))
+          os.close(primary_fd)
+
+          if proc.returncode != 0:
+              sys.stderr.write(output.decode("utf-8", errors="replace"))
+              raise SystemExit(f"ghostty-theme-picker exited with code {proc.returncode}")
+          PY
