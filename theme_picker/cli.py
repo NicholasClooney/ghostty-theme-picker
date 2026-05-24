@@ -269,6 +269,17 @@ def _build_browse_cursor(state: PickerState) -> dict[str, str]:
     return cursor
 
 
+def _build_title(state: PickerState, pending_g: bool) -> str:
+    """Build the top status/help bar text."""
+    if pending_g:
+        return "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
+    jump_counts = f"jumps {len(state.history)}<- {len(state.future)}->"
+    return (
+        "j/k ^D/^U h/l Enter Esc *=star x=rm Space=add "
+        f"G=bot g..=jump ^O/^I=back/fwd   {jump_counts}"
+    )
+
+
 def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
     curses.curs_set(0)
     curses.raw()  # disable terminal driver so Ctrl-O isn't eaten as DISCARD
@@ -283,10 +294,7 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
         stdscr.clear()
         h, w = stdscr.getmaxyx()
 
-        if pending_g:
-            title = "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
-        else:
-            title = "j/k ^D/^U h/l Enter Esc *=star x=rm Space=add G=bot g..=jump ^O/^I=back/fwd"
+        title = _build_title(state, pending_g)
         _addstr(stdscr, 0, 0, title[:w - 1], curses.A_BOLD)
 
         list_start = draw_preview(stdscr, 2, w)

@@ -1,7 +1,7 @@
 """Unit tests for the theme_picker.core functional core."""
 
 import pytest
-from theme_picker.cli import _build_browse_cursor
+from theme_picker.cli import _build_browse_cursor, _build_title
 from theme_picker.core import (
     ITEM_BROWSE,
     ITEM_FAVORITE,
@@ -456,3 +456,20 @@ def test_build_browse_cursor_uses_live_browse_position(sample_data, sample_brows
 
     browse_cursor = _build_browse_cursor(state)
     assert browse_cursor["dark"] == "Nord"
+
+
+def test_build_title_shows_jump_counters(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
+    state, _ = action_jump_bottom(state)
+    state, _ = action_go_back(state)
+
+    title = _build_title(state, pending_g=False)
+    assert "^O/^I=back/fwd" in title
+    assert "jumps 0<- 1->" in title
+
+
+def test_build_title_g_prefix_overrides_jump_counters(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
+
+    title = _build_title(state, pending_g=True)
+    assert title == "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
