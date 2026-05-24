@@ -1,6 +1,7 @@
 """Unit tests for the theme_picker.core functional core."""
 
 import pytest
+from theme_picker.cli import _build_browse_cursor
 from theme_picker.core import (
     ITEM_BROWSE,
     ITEM_FAVORITE,
@@ -9,6 +10,7 @@ from theme_picker.core import (
     PickerState,
     action_add_favorite,
     action_go_back,
+    action_go_forward,
     action_jump_bottom,
     action_jump_column,
     action_jump_section,
@@ -414,3 +416,43 @@ def test_go_back_empty_history(sample_data, sample_browse, sample_classification
     state, preview = action_go_back(state)
     assert preview is None
     assert state.idx[0] == 0
+
+
+def test_go_forward_restores_newer_jump(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
+
+    state, _ = action_jump_bottom(state)
+    assert state.columns[0][state.idx[0]]["name"] == "Nord"
+
+    state, back_preview = action_go_back(state)
+    assert back_preview == "One Dark"
+    assert state.columns[0][state.idx[0]]["name"] == "One Dark"
+
+    state, forward_preview = action_go_forward(state)
+    assert forward_preview == "Nord"
+    assert state.columns[0][state.idx[0]]["name"] == "Nord"
+
+
+def test_new_jump_clears_forward_history(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
+
+    state, _ = action_jump_bottom(state)
+    state, _ = action_go_back(state)
+    assert len(state.future) == 1
+
+    state, _ = action_jump_section(state, "favorites")
+    assert len(state.future) == 0
+
+
+def test_build_browse_cursor_uses_live_browse_position(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
+
+    state, _ = action_jump_section(state, "browse")
+    state, _ = action_move(state, 1)  # Gruvbox Dark -> Nord
+    assert state.columns[0][state.idx[0]]["name"] == "Nord"
+
+    # Simulate quitting directly from browse without another section jump.
+    state.section_cursors["browse"][0] = None
+
+    browse_cursor = _build_browse_cursor(state)
+    assert browse_cursor["dark"] == "Nord"

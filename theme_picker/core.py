@@ -25,6 +25,7 @@ class PickerState:
     scroll: list[int] = field(default_factory=lambda: [0, 0])
     columns: list[list[dict]] = field(default_factory=lambda: [[], []])
     history: list[tuple[int, int, int]] = field(default_factory=list)
+    future: list[tuple[int, int, int]] = field(default_factory=list)
     section_cursors: dict[str, list[tuple[str, int] | None]] = field(
         default_factory=lambda: {"starred": [None, None],
                                  "favorites": [None, None],
@@ -172,6 +173,7 @@ def rebuild(state: PickerState,
 def action_push_history(state: PickerState) -> PickerState:
     """Push current position onto history stack."""
     state.history.append((state.col, state.idx[0], state.idx[1]))
+    state.future.clear()
     return state
 
 
@@ -179,7 +181,23 @@ def action_go_back(state: PickerState) -> tuple[PickerState, str | None]:
     """Pop history and restore position. No-op if history is empty."""
     if not state.history:
         return state, None
+    state.future.append((state.col, state.idx[0], state.idx[1]))
     col, idx0, idx1 = state.history.pop()
+    state.col = col
+    state.idx[0] = _clamp_to_selectable(state.columns[0], idx0) if state.columns[0] else 0
+    state.idx[1] = _clamp_to_selectable(state.columns[1], idx1) if state.columns[1] else 0
+    items = state.columns[state.col]
+    if items and state.idx[state.col] < len(items):
+        return state, items[state.idx[state.col]]["name"]
+    return state, None
+
+
+def action_go_forward(state: PickerState) -> tuple[PickerState, str | None]:
+    """Pop future history and restore position. No-op if future is empty."""
+    if not state.future:
+        return state, None
+    state.history.append((state.col, state.idx[0], state.idx[1]))
+    col, idx0, idx1 = state.future.pop()
     state.col = col
     state.idx[0] = _clamp_to_selectable(state.columns[0], idx0) if state.columns[0] else 0
     state.idx[1] = _clamp_to_selectable(state.columns[1], idx1) if state.columns[1] else 0

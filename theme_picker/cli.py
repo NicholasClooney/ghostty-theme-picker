@@ -12,6 +12,7 @@ from theme_picker.core import (
     PickerState,
     action_add_favorite,
     action_go_back,
+    action_go_forward,
     action_jump_bottom,
     action_jump_column,
     action_jump_section,
@@ -257,6 +258,11 @@ def _build_browse_cursor(state: PickerState) -> dict[str, str]:
     cursor = {}
     mode_map = {0: "dark", 1: "light"}
     for c in range(2):
+        items = state.columns[c]
+        idx = state.idx[c]
+        if items and 0 <= idx < len(items) and items[idx]["type"] == ITEM_BROWSE:
+            cursor[mode_map[c]] = items[idx]["name"]
+            continue
         saved = state.section_cursors["browse"][c]
         if saved is not None:
             cursor[mode_map[c]] = saved[0]  # saved is (name, idx)
@@ -265,6 +271,7 @@ def _build_browse_cursor(state: PickerState) -> dict[str, str]:
 
 def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
     curses.curs_set(0)
+    curses.raw()  # disable terminal driver so Ctrl-O isn't eaten as DISCARD
     init_colors()
 
     if not state.columns[0] and not state.columns[1]:
@@ -279,7 +286,7 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
         if pending_g:
             title = "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
         else:
-            title = "j/k ^D/^U h/l Enter Esc *=star x=rm Space=add G=bot g..=jump ^O=back"
+            title = "j/k ^D/^U h/l Enter Esc *=star x=rm Space=add G=bot g..=jump ^O/^I=back/fwd"
         _addstr(stdscr, 0, 0, title[:w - 1], curses.A_BOLD)
 
         list_start = draw_preview(stdscr, 2, w)
@@ -352,7 +359,7 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
                 set_theme(preview)
             continue
 
-        if key in (ord("q"), 27):  # quit/cancel
+        if key in (ord("q"), 27, 3):  # quit/cancel (3 = Ctrl-C in raw mode)
             break
         elif key == ord("g"):
             pending_g = True
@@ -362,6 +369,10 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
                 set_theme(preview)
         elif key == 15:  # Ctrl-O: go back
             state, preview = action_go_back(state)
+            if preview:
+                set_theme(preview)
+        elif key == 9:  # Ctrl-I / Tab: go forward
+            state, preview = action_go_forward(state)
             if preview:
                 set_theme(preview)
         elif key in (curses.KEY_DOWN, ord("j")):
