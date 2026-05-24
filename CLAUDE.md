@@ -37,9 +37,19 @@ Tests are in `theme_picker/tests/`. They cover the pure functional core only, no
 ## Keybindings
 
 When adding or changing keybindings, update all three places:
+
 1. `cli.py` -- the actual key handling logic
 2. `cli.py` title bar strings -- the in-TUI help text (both normal and g-prefix modes)
 3. `README.md` "Keys" and "Jumps" sections -- the user-facing docs
+
+## Commit messages
+
+This repo enforces Conventional Commits in CI.
+
+- Use `type: summary` or `type(scope): summary`
+- Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`,
+  `refactor`, `revert`, `style`, `test`
+- Example: `docs(readme): document tmux theme reload color issue`
 
 ## Common mistakes
 
