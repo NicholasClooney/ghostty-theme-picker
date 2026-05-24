@@ -7,6 +7,7 @@ from theme_picker.core import (
     ITEM_STARRED,
     PickerState,
     action_add_favorite,
+    action_jump_last_seen_browse,
     action_move,
     action_page_move,
     action_remove,

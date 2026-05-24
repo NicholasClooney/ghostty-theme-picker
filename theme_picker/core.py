@@ -20,6 +20,7 @@ class PickerState:
     browse: list[str]                              # browse theme names
     classifications: dict[str, str]                 # name -> "dark"/"light"
     seen: set[str] = field(default_factory=set)     # themes cursor has visited in browse
+    last_seen_browse: str | None = None
     col: int = 0                                    # 0=dark, 1=light
     idx: list[int] = field(default_factory=lambda: [0, 0])
     scroll: list[int] = field(default_factory=lambda: [0, 0])
@@ -283,6 +284,24 @@ def action_jump_bottom(state: PickerState) -> tuple[PickerState, str | None]:
     return state, items[target]["name"]
 
 
+def action_jump_last_seen_browse(state: PickerState) -> tuple[PickerState, str | None]:
+    """Jump to the most recently seen browse item across both columns."""
+    if state.last_seen_browse is None:
+        return state, None
+
+    for col, items in enumerate(state.columns):
+        found = _find_item(items, state.last_seen_browse)
+        if found is None or _current_section(items, found) != "browse":
+            continue
+        state = _save_section_cursor(state)
+        state = action_push_history(state)
+        state.col = col
+        state.idx[col] = found
+        return state, items[found]["name"]
+
+    return state, None
+
+
 # ── Action functions ─────────────────────────────────────────────────
 
 
@@ -466,6 +485,7 @@ def track_seen(state: PickerState) -> PickerState:
         item = items[state.idx[state.col]]
         if item["type"] == ITEM_BROWSE:
             state.seen.add(item["name"])
+            state.last_seen_browse = item["name"]
     return state
 
 
@@ -474,13 +494,15 @@ def init_state(data: dict, browse: list[str],
                original_theme: str,
                classify_fn: Callable | None = None,
                seen: set[str] | None = None,
-               browse_cursor: dict[str, str] | None = None) -> PickerState:
+               browse_cursor: dict[str, str] | None = None,
+               last_seen_browse: str | None = None) -> PickerState:
     """Create and initialize a PickerState for the given data."""
     state = PickerState(
         data=data,
         browse=browse,
         classifications=classifications,
         seen=seen if seen is not None else set(),
+        last_seen_browse=last_seen_browse,
     )
     state = rebuild(state, classify_fn)
 

@@ -13,6 +13,7 @@ from theme_picker.core import (
     action_go_forward,
     action_jump_bottom,
     action_jump_column,
+    action_jump_last_seen_browse,
     action_jump_section,
     action_jump_top,
     action_move,
@@ -207,10 +208,12 @@ def test_track_seen(sample_data, sample_browse, sample_classifications):
     # Cursor is on a browse item
     assert state.columns[0][state.idx[0]]["type"] == ITEM_BROWSE
     assert len(state.seen) == 0
+    assert state.last_seen_browse is None
 
     # Track seen
     state = track_seen(state)
     assert "Gruvbox Dark" in state.seen
+    assert state.last_seen_browse == "Gruvbox Dark"
 
     # Move to Nord and track
     state, _ = action_move(state, 1)
@@ -218,6 +221,7 @@ def test_track_seen(sample_data, sample_browse, sample_classifications):
     state = track_seen(state)
     assert "Nord" in state.seen
     assert len(state.seen) == 2
+    assert state.last_seen_browse == "Nord"
 
     # Non-browse item should not be added
     state2 = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
@@ -343,6 +347,55 @@ def test_section_cursor_memory(sample_data, sample_browse, sample_classification
     state, preview = action_jump_section(state, "browse")
     assert preview == "Nord"
     assert state.columns[0][state.idx[0]]["name"] == "Nord"
+
+
+def test_jump_last_seen_browse_across_columns(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
+
+    state, _ = action_jump_section(state, "browse")
+    state = track_seen(state)
+    assert state.last_seen_browse == "Gruvbox Dark"
+
+    state, _ = action_jump_column(state, 1)
+    state, _ = action_jump_section(state, "browse")
+    state = track_seen(state)
+    assert state.last_seen_browse == "Gruvbox Light"
+
+    state, preview = action_jump_last_seen_browse(state)
+    assert preview == "Gruvbox Light"
+    assert state.col == 1
+    assert state.columns[1][state.idx[1]]["type"] == ITEM_BROWSE
+    assert state.columns[1][state.idx[1]]["name"] == "Gruvbox Light"
+
+
+def test_jump_last_seen_browse_noops_when_item_left_browse(sample_data, sample_browse, sample_classifications):
+    state = init_state(sample_data, sample_browse, sample_classifications, "Gruvbox Dark", mock_classify_theme)
+    state = track_seen(state)
+    assert state.last_seen_browse == "Gruvbox Dark"
+
+    state, _ = action_add_favorite(state, mock_classify_theme)
+    current_col = state.col
+    current_idx = state.idx[current_col]
+    history_len = len(state.history)
+
+    state, preview = action_jump_last_seen_browse(state)
+    assert preview is None
+    assert state.col == current_col
+    assert state.idx[current_col] == current_idx
+    assert len(state.history) == history_len
+
+
+def test_init_state_restores_last_seen_browse(sample_data, sample_browse, sample_classifications):
+    state = init_state(
+        sample_data,
+        sample_browse,
+        sample_classifications,
+        "One Dark",
+        mock_classify_theme,
+        last_seen_browse="Nord",
+    )
+
+    assert state.last_seen_browse == "Nord"
 
 
 def test_jump_top_bottom(sample_data, sample_browse, sample_classifications):
@@ -472,4 +525,4 @@ def test_build_title_g_prefix_overrides_jump_counters(sample_data, sample_browse
     state = init_state(sample_data, sample_browse, sample_classifications, "One Dark", mock_classify_theme)
 
     title = _build_title(state, pending_g=True)
-    assert title == "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
+    assert title == "g-prefix: g=top d=dark l=light s=star f=fav u=browse j=seen (Esc=cancel)"

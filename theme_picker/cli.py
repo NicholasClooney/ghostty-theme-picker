@@ -1,7 +1,9 @@
 """CLI implementation and curses interface for the Ghostty theme picker."""
 
+import argparse
 import curses
 import sys
+from importlib.metadata import version
 from typing import Any
 
 from theme_picker.core import (
@@ -15,6 +17,7 @@ from theme_picker.core import (
     action_go_forward,
     action_jump_bottom,
     action_jump_column,
+    action_jump_last_seen_browse,
     action_jump_section,
     action_jump_top,
     action_move,
@@ -39,6 +42,7 @@ from theme_picker.data import (
     parse_bg,
     save_yaml,
 )
+from theme_picker.paths import is_supported_platform, platform_name
 
 # Color pair IDs mapped to ANSI palette colors.
 C_NORMAL = 0
@@ -272,7 +276,7 @@ def _build_browse_cursor(state: PickerState) -> dict[str, str]:
 def _build_title(state: PickerState, pending_g: bool) -> str:
     """Build the top status/help bar text."""
     if pending_g:
-        return "g-prefix: g=top d=dark l=light s=star f=fav u=browse (Esc=cancel)"
+        return "g-prefix: g=top d=dark l=light s=star f=fav u=browse j=seen (Esc=cancel)"
     jump_counts = f"jumps {len(state.history)}<- {len(state.future)}->"
     return (
         "j/k ^D/^U h/l Enter Esc *=star x=rm Space=add "
@@ -360,6 +364,8 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
                 state, preview = action_jump_section(state, "favorites")
             elif key == ord("u"):
                 state, preview = action_jump_section(state, "browse")
+            elif key == ord("j"):
+                state, preview = action_jump_last_seen_browse(state)
             elif key == 27:  # Esc cancels g-prefix
                 continue
             # else: unknown second key, ignore
@@ -409,7 +415,7 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
                 set_theme(preview)
         elif key in (curses.KEY_ENTER, 10, 13):
             browse_cursor = _build_browse_cursor(state)
-            save_yaml(state.data, state.seen, browse_cursor)
+            save_yaml(state.data, state.seen, browse_cursor, state.last_seen_browse)
             return True
         elif key == ord("*"):
             state, _ = action_star(state, classify_theme)
@@ -429,14 +435,22 @@ def main_tui(stdscr: Any, state: PickerState, original_theme: str) -> bool:
 
     # Cancel: save state but restore original theme
     browse_cursor = _build_browse_cursor(state)
-    save_yaml(state.data, state.seen, browse_cursor)
+    save_yaml(state.data, state.seen, browse_cursor, state.last_seen_browse)
     return False
 
 
 def run() -> None:
+    if not is_supported_platform():
+        print(
+            "ghostty-theme-picker currently supports Ghostty on macOS and Linux. "
+            f"Detected platform: {platform_name()}."
+        )
+        sys.exit(1)
+
     data = load_yaml()
     seen = set(data.pop("seen", []))
     browse_cursor = data.pop("browse_cursor", {})
+    last_seen_browse = data.pop("last_seen_browse", None)
 
     # Filter out themes already in favorites or starred
     all_favorite_names = set(
@@ -466,6 +480,7 @@ def run() -> None:
         classify_fn=classify_theme,
         seen=seen,
         browse_cursor=browse_cursor,
+        last_seen_browse=last_seen_browse,
     )
 
     saved = curses.wrapper(main_tui, state, original_theme)
@@ -479,6 +494,16 @@ def run() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="ghostty-theme-picker",
+        description="Browse and preview Ghostty themes in a curses TUI.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('ghostty-theme-picker')}",
+    )
+    parser.parse_args()
     try:
         run()
     except KeyboardInterrupt:

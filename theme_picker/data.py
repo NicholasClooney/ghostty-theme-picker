@@ -3,11 +3,13 @@
 import re
 from pathlib import Path
 
-GHOSTTY_CONFIG_DIR = Path.home() / ".config" / "ghostty"
+from theme_picker.paths import ghostty_config_dir, theme_search_dirs
+
+
+GHOSTTY_CONFIG_DIR = ghostty_config_dir()
 YAML_FILE = GHOSTTY_CONFIG_DIR / "themes.yaml"
 ALL_THEMES_FILE = GHOSTTY_CONFIG_DIR / "all-themes.txt"
 CLASSIFIED_FILE = GHOSTTY_CONFIG_DIR / "classified-themes.yaml"
-THEMES_DIR = Path("/Applications/Ghostty.app/Contents/Resources/ghostty/themes")
 
 
 def load_classified() -> dict[str, str]:
@@ -56,7 +58,14 @@ def generate_classified() -> dict[str, str]:
 
 def load_yaml() -> dict:
     """Load themes.yaml into structured dict with starred, dark, light, seen, browse_cursor."""
-    data = {"starred": [], "dark": [], "light": [], "seen": [], "browse_cursor": {}}
+    data = {
+        "starred": [],
+        "dark": [],
+        "light": [],
+        "seen": [],
+        "browse_cursor": {},
+        "last_seen_browse": None,
+    }
     if not YAML_FILE.exists():
         return data
 
@@ -82,6 +91,12 @@ def load_yaml() -> dict:
             continue
         if line.startswith("browse_cursor:"):
             current_section = "browse_cursor"
+            continue
+        if line.startswith("last_seen_browse:"):
+            m = re.match(r'last_seen_browse: "(.+)"', line)
+            if m:
+                data["last_seen_browse"] = m.group(1)
+            current_section = None
             continue
         if re.match(r"^[a-z]", line) and not line.startswith(" "):
             current_section = None
@@ -123,8 +138,14 @@ def load_yaml() -> dict:
     return data
 
 
-def save_yaml(data: dict, seen: set[str], browse_cursor: dict[str, str]) -> None:
+def save_yaml(
+    data: dict,
+    seen: set[str],
+    browse_cursor: dict[str, str],
+    last_seen_browse: str | None,
+) -> None:
     """Write structured data back to themes.yaml."""
+    YAML_FILE.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# Managed by ghostty-theme-picker",
         "",
@@ -155,16 +176,20 @@ def save_yaml(data: dict, seen: set[str], browse_cursor: dict[str, str]) -> None
     if browse_cursor.get("light"):
         lines.append(f'  light: "{browse_cursor["light"]}"')
     lines.append("")
+    if last_seen_browse:
+        lines.append(f'last_seen_browse: "{last_seen_browse}"')
+        lines.append("")
     YAML_FILE.write_text("\n".join(lines))
 
 
 def parse_bg(theme_name: str) -> str | None:
-    path = THEMES_DIR / theme_name
-    if not path.exists():
-        return None
-    for line in path.read_text().splitlines():
-        if line.startswith("background"):
-            return line.split("=", 1)[1].strip()
+    for theme_dir in theme_search_dirs():
+        path = theme_dir / theme_name
+        if not path.exists():
+            continue
+        for line in path.read_text().splitlines():
+            if line.startswith("background"):
+                return line.split("=", 1)[1].strip()
     return None
 
 

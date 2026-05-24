@@ -7,6 +7,9 @@ and regenerates classified-themes.yaml for all themes in all-themes.txt.
 Safe to re-run at any time. Never touches starred or review progress.
 """
 
+import argparse
+from importlib.metadata import version
+
 from theme_picker.data import (
     classify,
     generate_classified,
@@ -36,11 +39,27 @@ def refresh_metadata(data: dict) -> int:
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        prog="ghostty-theme-generate",
+        description="Refresh Ghostty theme metadata and classification cache.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('ghostty-theme-picker')}",
+    )
+    parser.parse_args()
+
     # Refresh metadata for existing favorites in themes.yaml
     data = load_yaml()
     updated = refresh_metadata(data)
     if updated:
-        save_yaml(data)
+        save_yaml(
+            data,
+            set(data.get("seen", [])),
+            data.get("browse_cursor", {}),
+            data.get("last_seen_browse"),
+        )
         print(f"Updated metadata for {updated} themes in themes.yaml")
     else:
         print("All theme metadata up to date")
