@@ -60,6 +60,7 @@ uv run ghostty-theme-generate
 | `Esc` / `q` | Cancel, restore original theme, quit |
 | `G` | Jump to bottom of column |
 | `Ctrl-O` | Go back to previous position |
+| `Ctrl-I` | Go forward to newer jump position |
 
 ### Jumps (g-prefix)
 
@@ -73,7 +74,7 @@ Press `g` then a second key to jump:
 | `gf` | Jump to favorites section |
 | `gu` | Jump to browse section |
 
-Jumping to a section remembers where you were last time. Starring, favoriting, removing, column switches, page moves, and section jumps all save your position so `Ctrl-O` can take you back.
+Jumping to a section remembers where you were last time. Starring, favoriting, removing, column switches, page moves, and section jumps all save your position so `Ctrl-O` can take you back and `Ctrl-I` can move forward again.
 
 ### Workflow
 
