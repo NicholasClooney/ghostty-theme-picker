@@ -107,6 +107,12 @@ Jumping to a section remembers where you were last time. Starring, favoriting, r
 3. Press `Space` to promote to **favorites**, or `*` to go straight to **starred**.
 4. Favorites, starred, seen state, last seen browse item, and browse cursor position persist in `themes.yaml` across sessions.
 
+## Known issue
+
+If you use the picker inside `tmux`, hot-reloading a new Ghostty theme can leave terminal colors looking wrong until the `tmux` client is detached and reattached. Restarting the picker alone may not be enough because `tmux` can keep stale terminal color/background information for the current client.
+
+Workaround: detach with `Ctrl-b d`, then run `tmux attach`.
+
 ## Data files
 
 Picker state lives in Ghostty's XDG config dir, usually `~/.config/ghostty/`:
