@@ -2,16 +2,30 @@
 
 A two-column TUI for browsing, starring, and managing [Ghostty](https://ghostty.org) terminal themes. Dark themes on the left, light on the right. Themes preview live as you navigate.
 
-```
-  DARK                          |  LIGHT
- *  Catppuccin Mocha            |  *  Bluloco Light
- -- favorites ------------------|  -- favorites ------------------
-    Afterglow                   |     Belafonte Day
-    Andromeda                   |     Breadog
- -- browse ----------------------|  -- browse --------------------
-    Crayon Pony Fish            |     Dawnfox
-    Cursor Dark                 |     ...
-```
+<table>
+<tr>
+<td align="center">
+
+<img width="800" alt="Dark Themes" src="https://github.com/user-attachments/assets/4fdea84d-fddb-4683-ad61-e670627e02b8" />
+
+**Dark Themes**
+
+</td>
+<td align="center">
+
+<img width="800" alt="Light Themes" src="https://github.com/user-attachments/assets/fd2c75c1-d796-4d4b-8df2-75e583f065b9" />
+
+**Light Themes**
+
+</td>
+</tr>
+</table>
+
+<p align="center">
+  <a href="https://youtu.be/nwjMTlvUArk">
+    ▶️ Watch Demo Video on YouTube
+  </a>
+</p>
 
 ## Setup
 
