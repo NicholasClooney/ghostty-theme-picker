@@ -29,7 +29,7 @@ from theme_picker.core import (
     rebuild,
     track_seen,
 )
-from theme_picker.config import get_current_theme, get_ghostty_active_theme, reload_config, set_theme
+from theme_picker.config import get_current_theme, reload_config, set_theme
 from theme_picker.data import (
     ALL_THEMES_FILE,
     classify,
@@ -512,13 +512,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.set_theme_name:
         set_theme(args.set_theme_name)
-        active = get_ghostty_active_theme()
-        if active == args.set_theme_name:
-            print(f"Theme set and confirmed: {active}")
-        elif active is not None:
-            print(f"Theme set to {args.set_theme_name}, but Ghostty reports: {active}")
-        else:
-            print(f"Theme set: {args.set_theme_name} (could not confirm via Ghostty)")
+        print(f"Theme set: {args.set_theme_name}")
         return
     try:
         run()

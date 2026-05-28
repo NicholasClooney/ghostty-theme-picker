@@ -31,22 +31,6 @@ def reload_config() -> None:
         pass
 
 
-def get_ghostty_active_theme() -> str | None:
-    """Return the theme Ghostty resolves from its active config, or None if unavailable."""
-    try:
-        result = subprocess.run(
-            ["ghostty", "+show-config"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
-            if re.match(r"^theme\s*=", line):
-                return line.split("=", 1)[1].strip()
-    except OSError:
-        pass
-    return None
-
 
 def set_theme(name: str) -> None:
     config_path = active_config_file()
