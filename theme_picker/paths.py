@@ -21,7 +21,7 @@ def is_supported_platform(platform: str | None = None) -> bool:
 
 
 def xdg_config_home(env: dict[str, str] | None = None, home: Path | None = None) -> Path:
-    env = env or os.environ
+    env = os.environ if env is None else env
     if value := env.get("XDG_CONFIG_HOME"):
         return Path(value).expanduser()
     return (home or Path.home()) / ".config"
@@ -76,7 +76,7 @@ def theme_search_dirs(
     executable: str | None = None,
 ) -> list[Path]:
     platform = platform or platform_name()
-    env = env or os.environ
+    env = os.environ if env is None else env
     dirs: list[Path] = [ghostty_config_dir(env=env, home=home) / "themes"]
 
     if resource_dir := env.get("GHOSTTY_RESOURCES_DIR"):
