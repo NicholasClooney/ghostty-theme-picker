@@ -67,3 +67,5 @@ def test_set_theme_creates_preferred_config_file(tmp_path, monkeypatch):
     config.set_theme("Nord")
 
     assert target.read_text() == "theme = Nord\n"
+
+
