@@ -17,20 +17,12 @@ def get_current_theme() -> str:
     return theme
 
 
-def _reload_command() -> list[str] | None:
-    platform = platform_name()
-    if platform in {"darwin", "linux"}:
-        return ["pkill", "-USR2", "ghostty"]
-    return None
-
-
 def reload_config() -> None:
-    cmd = _reload_command()
-    if cmd is None:
+    if platform_name() not in {"darwin", "linux"}:
         return
     try:
         subprocess.run(
-            cmd,
+            ["killall", "-USR2", "ghostty"],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
