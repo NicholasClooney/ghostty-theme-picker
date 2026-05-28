@@ -1,6 +1,8 @@
 """End-to-end integration tests that write to the real Ghostty config and verify
 via `ghostty +show-config` that Ghostty actually picks up the change."""
 
+import subprocess
+
 import pytest
 
 from theme_picker.config import get_current_theme, get_ghostty_active_theme, set_theme
@@ -17,6 +19,9 @@ def restore_theme():
 
 
 def test_set_theme_is_confirmed_by_ghostty():
+    assert subprocess.run(["killall", "-0", "ghostty"], capture_output=True).returncode == 0, (
+        "Ghostty is not running -- cannot verify theme reload end-to-end."
+    )
     set_theme(PROBE_THEME)
     active = get_ghostty_active_theme()
     assert active == PROBE_THEME, (
