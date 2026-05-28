@@ -107,6 +107,21 @@ Jumping to a section remembers where you were last time. Starring, favoriting, r
 3. Press `Space` to promote to **favorites**, or `*` to go straight to **starred**.
 4. Favorites, starred, seen state, last seen browse item, and browse cursor position persist in `themes.yaml` across sessions.
 
+## Requirements
+
+On Linux, live theme reload requires `killall` (from the `psmisc` package). It is pre-installed on most distributions but may be absent on minimal systems. Install it with your package manager if theme switching has no effect:
+
+```
+# Debian/Ubuntu
+sudo apt install psmisc
+
+# Fedora/RHEL
+sudo dnf install psmisc
+
+# Arch
+sudo pacman -S psmisc
+```
+
 ## Known issue
 
 If you use the picker inside `tmux`, hot-reloading a new Ghostty theme can leave terminal colors looking wrong until the `tmux` client is detached and reattached. Restarting the picker alone may not be enough because `tmux` can keep stale terminal color/background information for the current client.
